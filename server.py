@@ -1,6 +1,7 @@
 import sys
 import cgi
 import requests
+import json
 import mysql.connector
 from config import server_cnf, db_credentials
 from http.server import HTTPServer, BaseHTTPRequestHandler
@@ -77,56 +78,66 @@ class handler(BaseHTTPRequestHandler):
                 self.send_response(200)
                 self.send_header('content-type', 'application/json') 
                 self.end_headers() 
-                self.wfile.write(str(data).encode('utf8'))
+                self.wfile.write(json.dumps(data).encode('utf8'))
 
             case _:
                 self.send_response(404)
-                self.send_header('content-type', 'text/html') 
-                self.end_headers() 
-                self.wfile.write(b'Not found')
-
-    def do_POST(self):
-        # https://api.finna.fi/api/v1/search?lookfor=9516113656&type=AllFields&field%5B%5D=title&field%5B%5D=year&field%5B%5D=nonPresenterAuthors&page=1&limit=20
-        form = cgi.FieldStorage(
-            fp=self.rfile,
-            headers=self.headers,
-            environ={'REQUEST_METHOD': 'POST',
-                     'CONTENT_TYPE': self.headers['Content-Type'],
-                     }
-        )
-        isbn = form.getvalue('isbn')
-        if verify_isbn(isbn):
-            print('isbn', isbn)
-            url = 'https://api.finna.fi/api/v1/search?lookfor={}&type=AllFields&field%5B%5D=title&field%5B%5D=year&field%5B%5D=nonPresenterAuthors&page=1&limit=20'.format(isbn)
-            r = requests.get(url)
-            res = r.json()
-            print('res', res)
-            
-            if res['resultCount'] > 0:
-                book = res['records'][0]
-                name = book['nonPresenterAuthors'][0]['name']
-                names = name.split(',')
-                book_data = {
-                    'isbn': isbn,
-                    'title': book['title'],
-                    'author_last': names[0].strip(),
-                    'author_first': names[1].strip(),
-                    'year': book['year']
-                }
-                self.send_response(200)
                 self.send_header('content-type', 'application/json') 
                 self.end_headers() 
-                self.wfile.write(str(book_data).encode('utf8'))
-            else:
+                self.wfile.write('{"error": "Ei endpointtia"}'.encode('utf8'))
+
+    def do_POST(self):
+        match urlparse(self.path).path:
+            case '/books':
+                form = cgi.FieldStorage(
+                    fp=self.rfile,
+                    headers=self.headers,
+                    environ={'REQUEST_METHOD': 'POST',
+                            'CONTENT_TYPE': self.headers['Content-Type'],
+                            }
+                )
+                isbn = form.getvalue('isbn')
+
+                if not verify_isbn(isbn):
+                    self.send_response(404)
+                    self.send_header('content-type', 'application/json') 
+                    self.end_headers() 
+                    self.wfile.write('{"error": "ISBN ei validi"}'.encode('utf8'))
+
+                else:
+                    print('isbn', isbn)
+                    url = 'https://api.finna.fi/api/v1/search?lookfor={}&type=AllFields&field%5B%5D=title&field%5B%5D=year&field%5B%5D=nonPresenterAuthors&page=1&limit=20'.format(isbn)
+                    r = requests.get(url)
+                    res = r.json()
+                    print('res', res)
+                    
+                    if res['resultCount'] < 1:
+                        self.send_response(404)
+                        self.send_header('content-type', 'application/json') 
+                        self.end_headers() 
+                        self.wfile.write('{"error": "ISBN:ää ei tunnistettu"}'.encode('utf8'))
+                    
+                    else:
+                        book = res['records'][0]
+                        name = book['nonPresenterAuthors'][0]['name']
+                        names = name.split(',')
+                        book_data = {
+                            'isbn': isbn,
+                            'title': book['title'],
+                            'author_last': names[0].strip(),
+                            'author_first': names[1].strip(),
+                            'year': book['year']
+                        }
+                        self.send_response(200)
+                        self.send_header('content-type', 'application/json') 
+                        self.end_headers() 
+                        self.wfile.write(json.dumps(book_data).encode('utf8'))
+
+            case _:
                 self.send_response(404)
                 self.send_header('content-type', 'application/json') 
                 self.end_headers() 
-                self.wfile.write('{error: "ISBN:ää ei tunnistettu"}'.encode('utf8'))
-        else:
-            self.send_response(404)
-            self.send_header('content-type', 'application/json') 
-            self.end_headers() 
-            self.wfile.write('{error: "ISBN ei validi"}'.encode('utf8'))
+                self.wfile.write('{"error": "Ei endpointtia"}'.encode('utf8'))
 
 def runserver():
     httpd = HTTPServer(('', server_cnf['port']), handler)
