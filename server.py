@@ -1,11 +1,26 @@
 import sys
-from config import server_cnf
+import mysql.connector
+from config import server_cnf, db_credentials
 from http.server import HTTPServer, BaseHTTPRequestHandler
+from urllib.parse import urlparse, parse_qs
+
+def connect():
+    try:
+        cnx = mysql.connector.connect(
+            user=db_credentials['user'],
+            password=db_credentials['password'],
+            database=db_credentials['database']
+            )
+    except mysql.connector.Error as err:
+        print(err)
+        return None
+    else:
+        return cnx
 
 class handler(BaseHTTPRequestHandler):
     def do_GET(self):
         print(self.path)
-        match self.path:
+        match urlparse(self.path).path:
             case '/':
                 self.send_response(200)
                 self.send_header('content-type', 'text/html') 
@@ -20,11 +35,24 @@ class handler(BaseHTTPRequestHandler):
                     self.wfile.write(f.read())
 
             case '/books':
-                self.send_response(200)
-                self.send_header('content-type', 'text/html') 
-                self.end_headers() 
-                self.wfile.write(b'Books')
+                params = parse_qs(urlparse(self.path).query)
+                page = int(params['page'][0] if 'page' in params.keys() else 0)
+                size = int(params['size'][0] if 'size' in params.keys() else 10)
                 
+                cnx = connect()
+                query = 'SELECT * FROM books WHERE id >= %s LIMIT %s;'
+                with cnx.cursor() as cur:
+                    cur.execute(query, [page * size, size])
+                    rows = cur.fetchall()
+                cnx.close()
+                data = [{ k:v for (k,v) in zip([col for col in cur.column_names], row) } for row in rows]
+                cur.close()
+
+                self.send_response(200)
+                self.send_header('content-type', 'application/json') 
+                self.end_headers() 
+                self.wfile.write(str(data).encode('utf8'))
+
             case _:
                 self.send_response(404)
                 self.send_header('content-type', 'text/html') 
