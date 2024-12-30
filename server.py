@@ -1,7 +1,4 @@
-import sys
-import cgi
-import requests
-import json
+import sys, cgi, requests, json
 import mysql.connector
 from config import server_cnf, db_credentials
 from http.server import HTTPServer, BaseHTTPRequestHandler
@@ -96,10 +93,29 @@ class handler(BaseHTTPRequestHandler):
                             'CONTENT_TYPE': self.headers['Content-Type'],
                             }
                 )
-                isbn = form.getvalue('isbn')
+                try:
+                    isbn = form.getvalue('isbn').strip()
+                except:
+                    self.send_response(400)
+                    self.send_header('content-type', 'application/json') 
+                    self.end_headers() 
+                    self.wfile.write('{"error": "Parametri ei validi"}'.encode('utf8'))
 
-                if not verify_isbn(isbn):
-                    self.send_response(404)
+                cnx = connect()
+                with cnx.cursor() as cur:
+                    query = 'SELECT * FROM books WHERE isbn = %s;'
+                    cur.execute(query, [isbn])
+                    rows = cur.fetchall()
+                cnx.close()
+
+                if len(rows) > 0:
+                    self.send_response(200)
+                    self.send_header('content-type', 'application/json') 
+                    self.end_headers() 
+                    self.wfile.write('{"msg": "ISBN jo käytössä"}'.encode('utf8'))
+
+                elif not verify_isbn(isbn):
+                    self.send_response(400)
                     self.send_header('content-type', 'application/json') 
                     self.end_headers() 
                     self.wfile.write('{"error": "ISBN ei validi"}'.encode('utf8'))
@@ -112,7 +128,7 @@ class handler(BaseHTTPRequestHandler):
                     print('res', res)
                     
                     if res['resultCount'] < 1:
-                        self.send_response(404)
+                        self.send_response(400)
                         self.send_header('content-type', 'application/json') 
                         self.end_headers() 
                         self.wfile.write('{"error": "ISBN:ää ei tunnistettu"}'.encode('utf8'))
@@ -128,7 +144,15 @@ class handler(BaseHTTPRequestHandler):
                             'author_first': names[1].strip(),
                             'year': book['year']
                         }
-                        self.send_response(200)
+
+                        cnx = connect()
+                        with cnx.cursor() as cur:
+                            query = 'INSERT INTO books (id, isbn, title, author_last, author_first, year) VALUES (NULL, %s, %s, %s, %s, %s)'
+                            cur.execute(query, [isbn, book['title'], names[0].strip(), names[1].strip(), int(book['year'])])
+                        cnx.commit()
+                        cnx.close()
+
+                        self.send_response(201)
                         self.send_header('content-type', 'application/json') 
                         self.end_headers() 
                         self.wfile.write(json.dumps(book_data).encode('utf8'))
