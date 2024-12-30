@@ -36,17 +36,21 @@ class handler(BaseHTTPRequestHandler):
 
             case '/books':
                 params = parse_qs(urlparse(self.path).query)
-                page = int(params['page'][0] if 'page' in params.keys() else 0)
+                page = int(params['page'][0] if 'page' in params.keys() else 1)
                 size = int(params['size'][0] if 'size' in params.keys() else 10)
-                
+
                 cnx = connect()
+                with cnx.cursor() as cur:
+                    cur.execute('SELECT COUNT(*) AS row_count FROM books;')
+                    row_count = cur.fetchone()[0]
                 query = 'SELECT * FROM books WHERE id >= %s LIMIT %s;'
                 with cnx.cursor() as cur:
-                    cur.execute(query, [page * size, size])
+                    cur.execute(query, [(page - 1) * size, size])
                     rows = cur.fetchall()
                 cnx.close()
-                data = [{ k:v for (k,v) in zip([col for col in cur.column_names], row) } for row in rows]
-                cur.close()
+                print(vars(cur))
+                books = [{ k:v for (k,v) in zip([col for col in cur.column_names], row) } for row in rows]
+                data = { 'page': page, 'size': size, 'total': row_count, 'data': books}
 
                 self.send_response(200)
                 self.send_header('content-type', 'application/json') 
