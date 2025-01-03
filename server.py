@@ -4,6 +4,8 @@ from config import server_cnf, db_credentials
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from urllib.parse import urlparse, parse_qs
 
+cors_origin=server_cnf['cors-origin']
+
 def connect():
     try:
         cnx = mysql.connector.connect(
@@ -38,50 +40,84 @@ def verify_isbn(isbn):
         return False
 
 class handler(BaseHTTPRequestHandler):
+    def do_OPTIONS(self):
+        print('options', self)
+        self.send_response(200)
+        self.send_header('Access-Control-Allow-Origin', cors_origin) 
+        self.send_header('Access-Control-Allow-Headers', 'hx-current-url') 
+        self.send_header('Access-Control-Allow-Headers', 'hx-request') 
+        self.send_header('Access-Control-Allow-Headers', 'hx-target') 
+        self.end_headers() 
+        self.wfile.write(b'Home')
     def do_GET(self):
         print(self.path)
-        match urlparse(self.path).path:
-            case '/':
+        full_path = urlparse(self.path).path.split('/')
+        print(full_path)
+        print(urlparse(self.path))
+
+        if urlparse(self.path).path == '/':
+            self.send_response(200)
+            self.send_header('content-type', 'text/html') 
+            self.end_headers() 
+            self.wfile.write(b'Home')
+
+        elif urlparse(self.path).path == '/favicon.ico':
+            with open('book-32.png', 'rb') as f:
                 self.send_response(200)
-                self.send_header('content-type', 'text/html') 
+                self.send_header('content-type', 'image/png') 
                 self.end_headers() 
-                self.wfile.write(b'Home')
+                self.wfile.write(f.read())
 
-            case '/favicon.ico':
-                with open('book-32.png', 'rb') as f:
-                    self.send_response(200)
-                    self.send_header('content-type', 'image/png') 
-                    self.end_headers() 
-                    self.wfile.write(f.read())
+        elif len(full_path) == 2 and full_path[1] == 'books':
+            params = parse_qs(urlparse(self.path).query)
+            page = int(params['page'][0] if 'page' in params.keys() else 1)
+            size = int(params['size'][0] if 'size' in params.keys() else 10)
 
-            case '/books':
-                params = parse_qs(urlparse(self.path).query)
-                page = int(params['page'][0] if 'page' in params.keys() else 1)
-                size = int(params['size'][0] if 'size' in params.keys() else 10)
+            cnx = connect()
+            with cnx.cursor() as cur:
+                cur.execute('SELECT COUNT(*) AS row_count FROM books;')
+                row_count = cur.fetchone()[0]
+            query = 'SELECT * FROM books WHERE id >= %s LIMIT %s;'
+            with cnx.cursor() as cur:
+                cur.execute(query, [(page - 1) * size, size])
+                rows = cur.fetchall()
+            cnx.close()
+            print(vars(cur))
+            book = [{ k:v for (k,v) in zip([col for col in cur.column_names], row) } for row in rows]
+            data = { 'page': page, 'size': size, 'total': row_count, 'data': book}
 
-                cnx = connect()
-                with cnx.cursor() as cur:
-                    cur.execute('SELECT COUNT(*) AS row_count FROM books;')
-                    row_count = cur.fetchone()[0]
-                query = 'SELECT * FROM books WHERE id >= %s LIMIT %s;'
-                with cnx.cursor() as cur:
-                    cur.execute(query, [(page - 1) * size, size])
-                    rows = cur.fetchall()
-                cnx.close()
-                print(vars(cur))
-                books = [{ k:v for (k,v) in zip([col for col in cur.column_names], row) } for row in rows]
-                data = { 'page': page, 'size': size, 'total': row_count, 'data': books}
-
-                self.send_response(200)
-                self.send_header('content-type', 'application/json') 
-                self.end_headers() 
-                self.wfile.write(json.dumps(data).encode('utf8'))
-
-            case _:
+            self.send_response(200)
+            self.send_header('content-type', 'application/json')
+            self.send_header('Access-Control-Allow-Origin', cors_origin)  
+            self.end_headers() 
+            self.wfile.write(json.dumps(data).encode('utf8'))
+        
+        elif len(full_path) == 3 and full_path[1] == 'books':
+            isbn = full_path[2]
+            query = 'SELECT * FROM books WHERE isbn = %s'
+            cnx = connect()
+            with cnx.cursor() as cur:
+                cur.execute(query, [isbn])
+                rows = cur.fetchall()
+                print(rows)
+            if len(rows) == 0:
                 self.send_response(404)
-                self.send_header('content-type', 'application/json') 
-                self.end_headers() 
-                self.wfile.write('{"error": "Ei endpointtia"}'.encode('utf8'))
+                self.send_header('content-type', 'application/json')
+                self.end_headers()
+                self.wfile.write('{"error": "Kirjaa ei löydy"}'.encode('utf8'))
+            else:
+                self.send_response(200)
+                self.send_header('content-type', 'application/json')
+                self.end_headers()
+                book = { k:v for (k,v) in zip([col for col in cur.column_names], rows[0]) }
+                self.wfile.write(json.dumps(book).encode('utf8'))
+            cnx.close()
+
+        else:
+            self.send_response(404)
+            self.send_header('content-type', 'application/json') 
+            self.end_headers() 
+            self.wfile.write('{"error": "Ei endpointtia"}'.encode('utf8'))
 
     def do_POST(self):
         match urlparse(self.path).path:
@@ -97,7 +133,9 @@ class handler(BaseHTTPRequestHandler):
                     isbn = form.getvalue('isbn').strip()
                 except:
                     self.send_response(400)
-                    self.send_header('content-type', 'application/json') 
+                    self.send_header('content-type', 'application/json')
+                    self.send_header('Access-Control-Allow-Origin', cors_origin)   
+                    self.send_header('Access-Control-Allow-Headers', 'hx-target') 
                     self.end_headers() 
                     self.wfile.write('{"error": "Parametri ei validi"}'.encode('utf8'))
 
@@ -111,12 +149,15 @@ class handler(BaseHTTPRequestHandler):
                 if len(rows) > 0:
                     self.send_response(200)
                     self.send_header('content-type', 'application/json') 
+                    self.send_header('Access-Control-Allow-Origin', cors_origin)  
                     self.end_headers() 
                     self.wfile.write('{"msg": "ISBN jo käytössä"}'.encode('utf8'))
 
                 elif not verify_isbn(isbn):
                     self.send_response(400)
                     self.send_header('content-type', 'application/json') 
+                    self.send_header('Access-Control-Allow-Origin', cors_origin)  
+                    self.send_header('Access-Control-Allow-Headers', 'hx-target') 
                     self.end_headers() 
                     self.wfile.write('{"error": "ISBN ei validi"}'.encode('utf8'))
 
@@ -130,6 +171,7 @@ class handler(BaseHTTPRequestHandler):
                     if res['resultCount'] < 1:
                         self.send_response(400)
                         self.send_header('content-type', 'application/json') 
+                        self.send_header('Access-Control-Allow-Origin', cors_origin)  
                         self.end_headers() 
                         self.wfile.write('{"error": "ISBN:ää ei tunnistettu"}'.encode('utf8'))
                     
@@ -154,6 +196,7 @@ class handler(BaseHTTPRequestHandler):
 
                         self.send_response(201)
                         self.send_header('content-type', 'application/json') 
+                        self.send_header('Access-Control-Allow-Origin', cors_origin)  
                         self.end_headers() 
                         self.wfile.write(json.dumps(book_data).encode('utf8'))
 
@@ -174,4 +217,5 @@ def runserver():
     except Exception as e:
         print('Poikkeus', e)
 
-runserver()
+if __name__ == '__main__':
+    runserver()
