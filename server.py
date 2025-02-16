@@ -220,3 +220,14 @@ def runserver():
 
 if __name__ == '__main__':
     runserver()
+    
+def app(environ, start_fn):
+    body= b''  # b'' for consistency on Python 3.0
+    try:
+        length= int(environ.get('CONTENT_LENGTH', '0'))
+    except ValueError:
+        length= 0
+    if length!=0:
+        body= environ['wsgi.input'].read(length)
+    start_fn('200 OK', [('Content-Type', 'text/plain')])
+    return [str(environ), str(body)]
