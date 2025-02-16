@@ -11,7 +11,8 @@ def connect():
         cnx = mysql.connector.connect(
             user=db_credentials['user'],
             password=db_credentials['password'],
-            database=db_credentials['database']
+            database=db_credentials['database'],
+            host=db_credentials['host']
             )
     except mysql.connector.Error as err:
         print(err)
@@ -120,91 +121,91 @@ class handler(BaseHTTPRequestHandler):
             self.wfile.write('{"error": "Ei endpointtia"}'.encode('utf8'))
 
     def do_POST(self):
-        match urlparse(self.path).path:
-            case '/books':
-                form = cgi.FieldStorage(
-                    fp=self.rfile,
-                    headers=self.headers,
-                    environ={'REQUEST_METHOD': 'POST',
-                            'CONTENT_TYPE': self.headers['Content-Type'],
-                            }
-                )
-                try:
-                    isbn = form.getvalue('isbn').strip()
-                except:
-                    self.send_response(400)
-                    self.send_header('content-type', 'application/json')
-                    self.send_header('Access-Control-Allow-Origin', cors_origin)   
-                    self.send_header('Access-Control-Allow-Headers', 'hx-target') 
-                    self.end_headers() 
-                    self.wfile.write('{"error": "Parametri ei validi"}'.encode('utf8'))
-
-                cnx = connect()
-                with cnx.cursor() as cur:
-                    query = 'SELECT * FROM books WHERE isbn = %s;'
-                    cur.execute(query, [isbn])
-                    rows = cur.fetchall()
-                cnx.close()
-
-                if len(rows) > 0:
-                    self.send_response(200)
-                    self.send_header('content-type', 'application/json') 
-                    self.send_header('Access-Control-Allow-Origin', cors_origin)  
-                    self.end_headers() 
-                    self.wfile.write('{"msg": "ISBN jo käytössä"}'.encode('utf8'))
-
-                elif not verify_isbn(isbn):
-                    self.send_response(400)
-                    self.send_header('content-type', 'application/json') 
-                    self.send_header('Access-Control-Allow-Origin', cors_origin)  
-                    self.send_header('Access-Control-Allow-Headers', 'hx-target') 
-                    self.end_headers() 
-                    self.wfile.write('{"error": "ISBN ei validi"}'.encode('utf8'))
-
-                else:
-                    print('isbn', isbn)
-                    url = 'https://api.finna.fi/api/v1/search?lookfor={}&type=AllFields&field%5B%5D=title&field%5B%5D=year&field%5B%5D=nonPresenterAuthors&page=1&limit=20'.format(isbn)
-                    r = requests.get(url)
-                    res = r.json()
-                    print('res', res)
-                    
-                    if res['resultCount'] < 1:
-                        self.send_response(400)
-                        self.send_header('content-type', 'application/json') 
-                        self.send_header('Access-Control-Allow-Origin', cors_origin)  
-                        self.end_headers() 
-                        self.wfile.write('{"error": "ISBN:ää ei tunnistettu"}'.encode('utf8'))
-                    
-                    else:
-                        book = res['records'][0]
-                        name = book['nonPresenterAuthors'][0]['name']
-                        names = name.split(',')
-                        book_data = {
-                            'isbn': isbn,
-                            'title': book['title'],
-                            'author_last': names[0].strip(),
-                            'author_first': names[1].strip(),
-                            'year': book['year']
+        path = urlparse(self.path).path
+        if path == '/books':
+            form = cgi.FieldStorage(
+                fp=self.rfile,
+                headers=self.headers,
+                environ={'REQUEST_METHOD': 'POST',
+                        'CONTENT_TYPE': self.headers['Content-Type'],
                         }
-
-                        cnx = connect()
-                        with cnx.cursor() as cur:
-                            query = 'INSERT INTO books (id, isbn, title, author_last, author_first, year) VALUES (NULL, %s, %s, %s, %s, %s)'
-                            cur.execute(query, [isbn, book['title'], names[0].strip(), names[1].strip(), int(book['year'])])
-                        cnx.commit()
-                        cnx.close()
-
-                        self.send_response(201)
-                        self.send_header('content-type', 'application/json') 
-                        self.send_header('Access-Control-Allow-Origin', cors_origin)  
-                        self.end_headers() 
-                        self.wfile.write(json.dumps(book_data).encode('utf8'))
-
-            case _:
-                self.send_response(404)
-                self.send_header('content-type', 'application/json') 
+            )
+            try:
+                isbn = form.getvalue('isbn').strip()
+            except:
+                self.send_response(400)
+                self.send_header('content-type', 'application/json')
+                self.send_header('Access-Control-Allow-Origin', cors_origin)   
+                self.send_header('Access-Control-Allow-Headers', 'hx-target') 
                 self.end_headers() 
-                self.wfile.write('{"error": "Ei endpointtia"}'.encode('utf8'))
+                self.wfile.write('{"error": "Parametri ei validi"}'.encode('utf8'))
+
+            cnx = connect()
+            with cnx.cursor() as cur:
+                query = 'SELECT * FROM books WHERE isbn = %s;'
+                cur.execute(query, [isbn])
+                rows = cur.fetchall()
+            cnx.close()
+
+            if len(rows) > 0:
+                self.send_response(200)
+                self.send_header('content-type', 'application/json') 
+                self.send_header('Access-Control-Allow-Origin', cors_origin)  
+                self.end_headers() 
+                self.wfile.write('{"msg": "ISBN jo käytössä"}'.encode('utf8'))
+
+            elif not verify_isbn(isbn):
+                self.send_response(400)
+                self.send_header('content-type', 'application/json') 
+                self.send_header('Access-Control-Allow-Origin', cors_origin)  
+                self.send_header('Access-Control-Allow-Headers', 'hx-target') 
+                self.end_headers() 
+                self.wfile.write('{"error": "ISBN ei validi"}'.encode('utf8'))
+
+            else:
+                print('isbn', isbn)
+                url = 'https://api.finna.fi/api/v1/search?lookfor={}&type=AllFields&field%5B%5D=title&field%5B%5D=year&field%5B%5D=nonPresenterAuthors&page=1&limit=20'.format(isbn)
+                r = requests.get(url)
+                res = r.json()
+                print('res', res)
+                
+                if res['resultCount'] < 1:
+                    self.send_response(400)
+                    self.send_header('content-type', 'application/json') 
+                    self.send_header('Access-Control-Allow-Origin', cors_origin)  
+                    self.end_headers() 
+                    self.wfile.write('{"error": "ISBN:ää ei tunnistettu"}'.encode('utf8'))
+                
+                else:
+                    book = res['records'][0]
+                    name = book['nonPresenterAuthors'][0]['name']
+                    names = name.split(',')
+                    book_data = {
+                        'isbn': isbn,
+                        'title': book['title'],
+                        'author_last': names[0].strip(),
+                        'author_first': names[1].strip(),
+                        'year': book['year']
+                    }
+
+                    cnx = connect()
+                    with cnx.cursor() as cur:
+                        query = 'INSERT INTO books (id, isbn, title, author_last, author_first, year) VALUES (NULL, %s, %s, %s, %s, %s)'
+                        cur.execute(query, [isbn, book['title'], names[0].strip(), names[1].strip(), int(book['year'])])
+                    cnx.commit()
+                    cnx.close()
+
+                    self.send_response(201)
+                    self.send_header('content-type', 'application/json') 
+                    self.send_header('Access-Control-Allow-Origin', cors_origin)  
+                    self.end_headers() 
+                    self.wfile.write(json.dumps(book_data).encode('utf8'))
+
+        else:
+            self.send_response(404)
+            self.send_header('content-type', 'application/json') 
+            self.end_headers() 
+            self.wfile.write('{"error": "Ei endpointtia"}'.encode('utf8'))
 
 def runserver():
     httpd = HTTPServer(('', server_cnf['port']), handler)
