@@ -1,4 +1,4 @@
-import sys, cgi, requests, json
+import sys, cgi, requests, json, html
 import mysql.connector
 from config import server_cnf, db_credentials
 from http.server import HTTPServer, BaseHTTPRequestHandler
@@ -208,36 +208,86 @@ def get_book(isbn, default_headers):
         book = { k:v for (k,v) in zip([col for col in cur.column_names], rows[0]) }
         res = {'status': '200 OK', 'headers': default_headers, 'body': book}
     return res
+
+def post_book(isbn, default_headers):
+    cnx = connect()
+    with cnx.cursor() as cur:
+        query = 'SELECT * FROM books WHERE isbn = %s;'
+        cur.execute(query, [isbn])
+        rows = cur.fetchall()
+    cnx.close()
+    if len(rows) > 0:
+        res = {'status': '409 CONFLICT', 'headers': default_headers, 'body': {'message': 'ISBN on jo kirjattu'}}
+    else:
+        url = 'https://api.finna.fi/api/v1/search?lookfor={}&type=AllFields&field%5B%5D=title&field%5B%5D=year&field%5B%5D=nonPresenterAuthors&page=1&limit=20'.format(isbn)
+        r = requests.get(url)
+        res = r.json()
+        print('res', res)
+        
+        if res['resultCount'] < 1:
+            res = {'status': '404 NOT FOUND', 'headers': default_headers, 'body': {'message': 'ISBN:ää ei tunnistettu'}}
+        else:
+            book = res['records'][0]
+            name = book['nonPresenterAuthors'][0]['name']
+            names = name.split(',')
+            book_data = {
+                'isbn': isbn,
+                'title': book['title'],
+                'author_last': names[0].strip(),
+                'author_first': names[1].strip(),
+                'year': book['year']
+            }
+
+            try:
+                cnx = connect()
+                with cnx.cursor() as cur:
+                    query = 'INSERT INTO books (id, isbn, title, author_last, author_first, year) VALUES (NULL, %s, %s, %s, %s, %s)'
+                    cur.execute(query, [isbn, book['title'], names[0].strip(), names[1].strip(), int(book['year'])])
+                cnx.commit()
+                res = {'status': '201 CREATED', 'headers': default_headers, 'body': {}}
+            except Exception as e:
+                res = {'status': '500 SERVER ERROR', 'headers': default_headers, 'body': {'message': str(e)}}
+                cnx.close()
+            finally:
+                return res
     
 def app(environ, start_fn):
     default_headers = [('Content-Type', 'application/json'),('Access-Control-Allow-Origin', cors_origin)]
+    path_list = environ['SCRIPT_URL'].split('/')
+    sys.stderr.write(f'path {str(path_list)}')
+
     if environ['REQUEST_METHOD'] == 'GET':
-        res = {'status': '404 NOT FOUND', 'headers': default_headers, 'body': {'message': 'Polku ei kelpaa (muista päättävä kauttaviiva!)'}}
-        path_list = environ['SCRIPT_URL'].split('/')
-        sys.stderr.write(f'path {str(path_list)}')
         if len(path_list) == 3 and path_list[1] == 'books' and path_list[2] == '':
             res = get_books(environ['QUERY_STRING'], default_headers)
         elif len(path_list) == 4 and path_list[1] == 'books' and verify_isbn(path_list[2]):
             res = get_book(path_list[2], default_headers)
+        else:
+            res = {'status': '404 NOT FOUND', 'headers': default_headers, 'body': {'message': 'Polku ei kelpaa (muista päättävä kauttaviiva!)'}}
 
         start_fn(res['status'], res['headers'])
         return [json.dumps(res['body'])]
     
     elif environ['REQUEST_METHOD'] == 'POST':
-        diipa = ''
-        daapa = ''
         try:
             length= int(environ.get('CONTENT_LENGTH', '0'))
         except ValueError:
-            length= 0
-        if length!=0:
+            length = 0
+            res = {'status': '404 NOT FOUND', 'headers': default_headers, 'body': {'message': 'ISBN-parametri puuttuu!'}}
+        if length != 0:
             body= environ['wsgi.input'].read(length)
             d = parse_qs(body.decode())
-            diipa = d.get('diipa', '')[0]
-            daapa = d.get('daapa', '')[0]
+            if not 'isbn' in d.keys():
+                res = {'status': '404 NOT FOUND', 'headers': default_headers, 'body': {'message': 'ISBN-parametri puuttuu!'}}
+            elif len(path_list) != 3 or path_list[1] != 'books' or path_list[2] != '':
+                res = {'status': '404 NOT FOUND', 'headers': default_headers, 'body': {'message': 'Polku ei kelpaa (muista päättävä kauttaviiva!)'}}
+            elif not verify_isbn(isbn):
+                res = {'status': '404 NOT FOUND', 'headers': default_headers, 'body': {'message': 'ISBN ei kelpaa'}}
+            else:
+                isbn = html.escape(d.get('isbn', '')[0])
+                res = post_book(isbn, default_headers)
 
-        start_fn('200 OK', [('Content-Type', 'application/json')])
-        return [json.dumps({'body': {'diipa': diipa, 'daapa': daapa}})]
+        start_fn(res['status'], res['headers'])
+        return [json.dumps(res['body'])]
     
     else:
         body= b''  # b'' for consistency on Python 3.0
