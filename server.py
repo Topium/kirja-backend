@@ -220,14 +220,38 @@ def runserver():
 
 if __name__ == '__main__':
     runserver()
+
+def handle_get(path, query):
+    path_list = path.split('/')
+    res = {'status': '500', 'headers': [('Content-Type', 'application/json')], 'body': {}}
+    if len(path_list) == 3 and path_list[1] == 'books':
+        params = parse_qs(query)
+        page = int(params['page'][0] if 'page' in params.keys() else 1)
+        size = int(params['size'][0] if 'size' in params.keys() else 10)
+
+        cnx = connect()
+        with cnx.cursor() as cur:
+            cur.execute('SELECT COUNT(*) AS row_count FROM books;')
+            row_count = cur.fetchone()[0]
+        query = 'SELECT * FROM books WHERE id >= %s LIMIT %s;'
+        with cnx.cursor() as cur:
+            cur.execute(query, [(page - 1) * size, size])
+            rows = cur.fetchall()
+        cnx.close()
+        print(vars(cur))
+        book = [{ k:v for (k,v) in zip([col for col in cur.column_names], row) } for row in rows]
+        data = { 'page': page, 'size': size, 'total': row_count, 'data': book}
+        res = {'status': '200 OK', 'headers': [('Content-Type', 'application/json')], 'body': data}
+    return res
     
 def app(environ, start_fn):
     if environ['REQUEST_METHOD'] == 'GET':
-        start_fn('200 OK', [('Content-Type', 'application/json')])
-        return [json.dumps({"response": "Response to a GET", "get": True})]
+        res = handle_get(environ['SCRIPT_URL'], environ['QUERY_STRING'])
+        start_fn(res['status'], res['headers'])
+        return [json.dumps(res['body'])]
     elif environ['REQUEST_METHOD'] == 'POST':
         diipa = ''
-        duupa = ''
+        daapa = ''
         try:
             length= int(environ.get('CONTENT_LENGTH', '0'))
         except ValueError:
