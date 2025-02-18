@@ -81,7 +81,6 @@ def get_books(query):
         with cnx.cursor() as cur:
             cur.execute(query, [(page - 1) * size, size])
             rows = cur.fetchall()
-        print(vars(cur))
         book = [{ k:v for (k,v) in zip([col for col in cur.column_names], row) } for row in rows]
         data = { 'page': page, 'size': size, 'total': row_count, 'data': book}
         res = {'status': '200 OK', 'headers': default_headers, 'body': data}
@@ -98,7 +97,6 @@ def get_book(isbn):
         with cnx.cursor() as cur:
             cur.execute(query, [isbn])
             rows = cur.fetchall()
-            print(rows)
         if len(rows) == 0:
             res = {'status': '404 NOT FOUND', 'headers': default_headers, 'body': {'message': 'Kirjaa ei löydy'}}
         else:
