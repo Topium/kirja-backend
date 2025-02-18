@@ -5,6 +5,15 @@ from http.server import HTTPServer, BaseHTTPRequestHandler
 from urllib.parse import urlparse, parse_qs
 
 cors_origin=server_cnf['cors-origin']
+default_headers = [
+    ('Content-Type', 'application/json'),
+    ('Access-Control-Allow-Origin', cors_origin)
+]
+htmx_headers = [
+    ('Access-Control-Allow-Headers'), ('hx-current-url'),
+    ('Access-Control-Allow-Headers'), ('hx-request'),
+    ('Access-Control-Allow-Headers'), ('hx-target')
+]
 
 def connect():
     try:
@@ -55,11 +64,10 @@ class handler(BaseHTTPRequestHandler):
                 self.end_headers() 
                 self.wfile.write(f.read())
 
-def handle_options(default_headers):
+def handle_options():
     return {'status': '200 OK', 'headers': default_headers, 'body': {}}
 
-def get_books(query, default_headers):
-    res = {'status': '500', 'headers': default_headers, 'body': {'message': 'Tuntematon virhe'}}
+def get_books(query):
     params = parse_qs(query)
     page = int(params['page'][0] if 'page' in params.keys() else 1)
     size = int(params['size'][0] if 'size' in params.keys() else 10)
@@ -73,7 +81,6 @@ def get_books(query, default_headers):
         with cnx.cursor() as cur:
             cur.execute(query, [(page - 1) * size, size])
             rows = cur.fetchall()
-        cnx.close()
         print(vars(cur))
         book = [{ k:v for (k,v) in zip([col for col in cur.column_names], row) } for row in rows]
         data = { 'page': page, 'size': size, 'total': row_count, 'data': book}
@@ -81,9 +88,10 @@ def get_books(query, default_headers):
     except Exception as e:
         sys.stderr.write(f'Database error: {str(e)}\n')
         res = {'status': '500 INTERNAL SERVER ERROR', 'headers': default_headers, 'body': {'message': 'Tietokantavirhe'}}
+    cnx.close()
     return res
 
-def get_book(isbn, default_headers):
+def get_book(isbn):
     query = 'SELECT * FROM books WHERE isbn = %s'
     try:
         cnx = connect()
@@ -99,9 +107,10 @@ def get_book(isbn, default_headers):
     except Exception as e:
         sys.stderr(f'Database error: {str(e)}\n')
         res = {'status': '500 INTERNAL SERVER ERROR', 'headers': default_headers, 'body': {'message': 'Tietokantavirhe'}}
+    cnx.close()
     return res
 
-def post_book(isbn, default_headers):
+def post_book(isbn):
     sys.stderr.write('start db post\n')
     try:
         cnx = connect()
@@ -109,7 +118,6 @@ def post_book(isbn, default_headers):
             query = 'SELECT * FROM books WHERE isbn = %s;'
             cur.execute(query, [isbn])
             rows = cur.fetchall()
-        cnx.close()
         if len(rows) > 0:
             sys.stderr.write('isbn exists\n')
             res = {'status': '409 CONFLICT', 'headers': default_headers, 'body': {'message': 'ISBN on jo kirjattu'}}
@@ -140,34 +148,25 @@ def post_book(isbn, default_headers):
     except Exception as e:
         sys.stderr.write(f'Database error: {str(e)}\n')
         res = {'status': '500 INTERNAL SERVER ERROR', 'headers': default_headers, 'body': {'message': 'Tietokantavirhe'}}
-    finally:
-        cnx.close()
+    cnx.close()
     sys.stderr.write(f'post res: {str(res)}\n')
     return res
     
 def app(environ, start_fn):
-    default_headers = [
-        ('Content-Type', 'application/json'),
-        ('Access-Control-Allow-Origin', cors_origin)
-    ]
-    htmx_headers = [
-        ('Access-Control-Allow-Headers'), ('hx-current-url'),
-        ('Access-Control-Allow-Headers'), ('hx-request'),
-        ('Access-Control-Allow-Headers'), ('hx-target')
-    ]
+
     path_list = environ['SCRIPT_URL'].split('/')
     sys.stderr.write(f'path {str(path_list)}')
 
     if environ['REQUEST_METHOD'] == 'OPTIONS':
-        res = handle_options(default_headers + htmx_headers)
+        res = handle_options()
         start_fn(res['status'], res['headers'])
         return [json.dumps(res['body'])]
 
     elif environ['REQUEST_METHOD'] == 'GET':
         if len(path_list) == 3 and path_list[1] == 'books' and path_list[2] == '':
-            res = get_books(environ['QUERY_STRING'], default_headers)
+            res = get_books(environ['QUERY_STRING'])
         elif len(path_list) == 4 and path_list[1] == 'books' and verify_isbn(path_list[2]):
-            res = get_book(path_list[2], default_headers)
+            res = get_book(path_list[2])
         else:
             res = {'status': '404 NOT FOUND', 'headers': default_headers, 'body': {'message': 'Polku ei kelpaa (muista päättävä kauttaviiva!)'}}
 
@@ -201,7 +200,7 @@ def app(environ, start_fn):
                     sys.stderr.write('not isbn\n')
                     res = {'status': '404 NOT FOUND', 'headers': default_headers, 'body': {'message': 'ISBN ei kelpaa'}}
                 else:
-                    res = post_book(isbn, default_headers)
+                    res = post_book(isbn)
         else:
             res = {'status': '404 NOT FOUND', 'headers': default_headers, 'body': {'message': 'ISBN-parametri puuttuu!'}}
 
