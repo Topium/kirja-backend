@@ -13,15 +13,15 @@ def connect():
             password=db_credentials['password'],
             database=db_credentials['database'],
             host=db_credentials['host']
-            )
+        )
     except mysql.connector.Error as err:
-        print(err)
+        sys.stderr.write(f'Connection failure: {str(err)}\n')
         return None
     else:
         return cnx
     
 def verify_isbn(isbn):
-    sys.stderr.write(f'isbn: {isbn}\n')
+    sys.stderr.write(f'verify isbn: {isbn}\n')
     if len(isbn) == 10:
         check = 0
         for (i, d) in enumerate(isbn[0:-1]):
@@ -42,15 +42,6 @@ def verify_isbn(isbn):
         return False
 
 class handler(BaseHTTPRequestHandler):
-    def do_OPTIONS(self):
-        print('options', self)
-        self.send_response(200)
-        self.send_header('Access-Control-Allow-Origin', cors_origin) 
-        self.send_header('Access-Control-Allow-Headers', 'hx-current-url') 
-        self.send_header('Access-Control-Allow-Headers', 'hx-request') 
-        self.send_header('Access-Control-Allow-Headers', 'hx-target') 
-        self.end_headers() 
-        self.wfile.write(b'Home')
     def do_GET(self):
         print(self.path)
         full_path = urlparse(self.path).path.split('/')
@@ -64,112 +55,8 @@ class handler(BaseHTTPRequestHandler):
                 self.end_headers() 
                 self.wfile.write(f.read())
 
-        else:
-            self.send_response(404)
-            self.send_header('content-type', 'application/json') 
-            self.end_headers() 
-            self.wfile.write('{"error": "Ei endpointtia"}'.encode('utf8'))
-
-    def do_POST(self):
-        path = urlparse(self.path).path
-        if path == '/books':
-            form = cgi.FieldStorage(
-                fp=self.rfile,
-                headers=self.headers,
-                environ={'REQUEST_METHOD': 'POST',
-                        'CONTENT_TYPE': self.headers['Content-Type'],
-                        }
-            )
-            try:
-                isbn = form.getvalue('isbn').strip()
-            except:
-                self.send_response(400)
-                self.send_header('content-type', 'application/json')
-                self.send_header('Access-Control-Allow-Origin', cors_origin)   
-                self.send_header('Access-Control-Allow-Headers', 'hx-target') 
-                self.end_headers() 
-                self.wfile.write('{"error": "Parametri ei validi"}'.encode('utf8'))
-
-            cnx = connect()
-            with cnx.cursor() as cur:
-                query = 'SELECT * FROM books WHERE isbn = %s;'
-                cur.execute(query, [isbn])
-                rows = cur.fetchall()
-            cnx.close()
-
-            if len(rows) > 0:
-                self.send_response(200)
-                self.send_header('content-type', 'application/json') 
-                self.send_header('Access-Control-Allow-Origin', cors_origin)  
-                self.end_headers() 
-                self.wfile.write('{"msg": "ISBN jo käytössä"}'.encode('utf8'))
-
-            elif not verify_isbn(isbn):
-                self.send_response(400)
-                self.send_header('content-type', 'application/json') 
-                self.send_header('Access-Control-Allow-Origin', cors_origin)  
-                self.send_header('Access-Control-Allow-Headers', 'hx-target') 
-                self.end_headers() 
-                self.wfile.write('{"error": "ISBN ei validi"}'.encode('utf8'))
-
-            else:
-                print('isbn', isbn)
-                url = 'https://api.finna.fi/api/v1/search?lookfor={}&type=AllFields&field%5B%5D=title&field%5B%5D=year&field%5B%5D=nonPresenterAuthors&page=1&limit=20'.format(isbn)
-                r = requests.get(url)
-                res = r.json()
-                print('res', res)
-                
-                if res['resultCount'] < 1:
-                    self.send_response(400)
-                    self.send_header('content-type', 'application/json') 
-                    self.send_header('Access-Control-Allow-Origin', cors_origin)  
-                    self.end_headers() 
-                    self.wfile.write('{"error": "ISBN:ää ei tunnistettu"}'.encode('utf8'))
-                
-                else:
-                    book = res['records'][0]
-                    name = book['nonPresenterAuthors'][0]['name']
-                    names = name.split(',')
-                    book_data = {
-                        'isbn': isbn,
-                        'title': book['title'],
-                        'author_last': names[0].strip(),
-                        'author_first': names[1].strip(),
-                        'year': book['year']
-                    }
-
-                    cnx = connect()
-                    with cnx.cursor() as cur:
-                        query = 'INSERT INTO books (id, isbn, title, author_last, author_first, year) VALUES (NULL, %s, %s, %s, %s, %s)'
-                        cur.execute(query, [isbn, book['title'], names[0].strip(), names[1].strip(), int(book['year'])])
-                    cnx.commit()
-                    cnx.close()
-
-                    self.send_response(201)
-                    self.send_header('content-type', 'application/json') 
-                    self.send_header('Access-Control-Allow-Origin', cors_origin)  
-                    self.end_headers() 
-                    self.wfile.write(json.dumps(book_data).encode('utf8'))
-
-        else:
-            self.send_response(404)
-            self.send_header('content-type', 'application/json') 
-            self.end_headers() 
-            self.wfile.write('{"error": "Ei endpointtia"}'.encode('utf8'))
-
-def runserver():
-    httpd = HTTPServer(('', server_cnf['port']), handler)
-    try:
-        print('Käynnistetään palvelin portissa', server_cnf['port'])
-        httpd.serve_forever()
-    except KeyboardInterrupt:
-        print('Suljetaan...')
-        sys.exit()
-    except Exception as e:
-        print('Poikkeus', e)
-
-if __name__ == '__main__':
-    runserver()
+def handle_options(default_headers):
+    return {'status': '200 OK', 'headers': default_headers, 'body': {}}
 
 def get_books(query, default_headers):
     res = {'status': '500', 'headers': default_headers, 'body': {'message': 'Tuntematon virhe'}}
@@ -192,79 +79,91 @@ def get_books(query, default_headers):
         data = { 'page': page, 'size': size, 'total': row_count, 'data': book}
         res = {'status': '200 OK', 'headers': default_headers, 'body': data}
     except Exception as e:
-        res = {'status': '500 OK', 'headers': default_headers, 'body': {'message': str(e)}}
+        sys.stderr.write(f'Database error: {str(e)}\n')
+        res = {'status': '500 INTERNAL SERVER ERROR', 'headers': default_headers, 'body': {'message': 'Tietokantavirhe'}}
     return res
 
 def get_book(isbn, default_headers):
     query = 'SELECT * FROM books WHERE isbn = %s'
-    cnx = connect()
-    with cnx.cursor() as cur:
-        cur.execute(query, [isbn])
-        rows = cur.fetchall()
-        print(rows)
-    if len(rows) == 0:
-        res = {'status': '404 NOT FOUND', 'headers': default_headers, 'body': {'message': 'Kirjaa ei löydy'}}
-    else:
-        book = { k:v for (k,v) in zip([col for col in cur.column_names], rows[0]) }
-        res = {'status': '200 OK', 'headers': default_headers, 'body': book}
+    try:
+        cnx = connect()
+        with cnx.cursor() as cur:
+            cur.execute(query, [isbn])
+            rows = cur.fetchall()
+            print(rows)
+        if len(rows) == 0:
+            res = {'status': '404 NOT FOUND', 'headers': default_headers, 'body': {'message': 'Kirjaa ei löydy'}}
+        else:
+            book = { k:v for (k,v) in zip([col for col in cur.column_names], rows[0]) }
+            res = {'status': '200 OK', 'headers': default_headers, 'body': book}
+    except Exception as e:
+        sys.stderr(f'Database error: {str(e)}\n')
+        res = {'status': '500 INTERNAL SERVER ERROR', 'headers': default_headers, 'body': {'message': 'Tietokantavirhe'}}
     return res
 
 def post_book(isbn, default_headers):
     sys.stderr.write('start db post\n')
-    cnx = connect()
-    with cnx.cursor() as cur:
-        query = 'SELECT * FROM books WHERE isbn = %s;'
-        cur.execute(query, [isbn])
-        rows = cur.fetchall()
-    cnx.close()
-    if len(rows) > 0:
-        sys.stderr.write('isbn exists\n')
-        res = {'status': '409 CONFLICT', 'headers': default_headers, 'body': {'message': 'ISBN on jo kirjattu'}}
-    else:
-        sys.stderr.write('request isbn\n')
-        url = 'https://api.finna.fi/api/v1/search?lookfor={}&type=AllFields&field%5B%5D=title&field%5B%5D=year&field%5B%5D=nonPresenterAuthors&page=1&limit=20'.format(isbn)
-        r = requests.get(url)
-        res = r.json()
-        sys.stderr.write(f'response: {str(res)}\n')
-
-        if res['resultCount'] < 1:
-            sys.stderr.write('no isbn found\n')
-            res = {'status': '404 NOT FOUND', 'headers': default_headers, 'body': {'message': 'ISBN:ää ei tunnistettu'}}
+    try:
+        cnx = connect()
+        with cnx.cursor() as cur:
+            query = 'SELECT * FROM books WHERE isbn = %s;'
+            cur.execute(query, [isbn])
+            rows = cur.fetchall()
+        cnx.close()
+        if len(rows) > 0:
+            sys.stderr.write('isbn exists\n')
+            res = {'status': '409 CONFLICT', 'headers': default_headers, 'body': {'message': 'ISBN on jo kirjattu'}}
         else:
-            sys.stderr.write('isbn found\n')
-            book = res['records'][0]
-            name = book['nonPresenterAuthors'][0]['name']
-            names = name.split(',')
-            book_data = {
-                'isbn': isbn,
-                'title': book['title'],
-                'author_last': names[0].strip(),
-                'author_first': names[1].strip(),
-                'year': book['year']
-            }
+            sys.stderr.write('request isbn\n')
+            url = 'https://api.finna.fi/api/v1/search?lookfor={}&type=AllFields&field%5B%5D=title&field%5B%5D=year&field%5B%5D=nonPresenterAuthors&page=1&limit=20'.format(isbn)
+            r = requests.get(url)
+            res = r.json()
+            sys.stderr.write(f'response: {str(res)}\n')
 
-            sys.stderr.write('insert book\n')
-            try:
+            if res['resultCount'] < 1:
+                sys.stderr.write('no isbn found\n')
+                res = {'status': '404 NOT FOUND', 'headers': default_headers, 'body': {'message': 'ISBN:ää ei tunnistettu'}}
+            else:
+                sys.stderr.write('isbn found\n')
+                book = res['records'][0]
+                name = book['nonPresenterAuthors'][0]['name']
+                names = name.split(',')
+
+                sys.stderr.write('insert book\n')
                 cnx = connect()
                 with cnx.cursor() as cur:
                     query = 'INSERT INTO books (id, isbn, title, author_last, author_first, year) VALUES (NULL, %s, %s, %s, %s, %s)'
                     cur.execute(query, [isbn, book['title'], names[0].strip(), names[1].strip(), int(book['year'])])
                 cnx.commit()
                 res = {'status': '201 CREATED', 'headers': default_headers, 'body': {}}
-            except Exception as e:
-                sys.stderr.write('insert failed\n')
-                res = {'status': '500 SERVER ERROR', 'headers': default_headers, 'body': {'message': str(e)}}
-            finally:
-                cnx.close()
-    sys.stderr.write(f'returning res: {str(res)}\n')
+
+    except Exception as e:
+        sys.stderr.write(f'Database error: {str(e)}\n')
+        res = {'status': '500 INTERNAL SERVER ERROR', 'headers': default_headers, 'body': {'message': 'Tietokantavirhe'}}
+    finally:
+        cnx.close()
+    sys.stderr.write(f'post res: {str(res)}\n')
     return res
     
 def app(environ, start_fn):
-    default_headers = [('Content-Type', 'application/json'),('Access-Control-Allow-Origin', cors_origin)]
+    default_headers = [
+        ('Content-Type', 'application/json'),
+        ('Access-Control-Allow-Origin', cors_origin)
+    ]
+    htmx_headers = [
+        ('Access-Control-Allow-Headers'), ('hx-current-url'),
+        ('Access-Control-Allow-Headers'), ('hx-request'),
+        ('Access-Control-Allow-Headers'), ('hx-target')
+    ]
     path_list = environ['SCRIPT_URL'].split('/')
     sys.stderr.write(f'path {str(path_list)}')
 
-    if environ['REQUEST_METHOD'] == 'GET':
+    if environ['REQUEST_METHOD'] == 'OPTIONS':
+        res = handle_options(default_headers + htmx_headers)
+        start_fn(res['status'], res['headers'])
+        return [json.dumps(res['body'])]
+
+    elif environ['REQUEST_METHOD'] == 'GET':
         if len(path_list) == 3 and path_list[1] == 'books' and path_list[2] == '':
             res = get_books(environ['QUERY_STRING'], default_headers)
         elif len(path_list) == 4 and path_list[1] == 'books' and verify_isbn(path_list[2]):
