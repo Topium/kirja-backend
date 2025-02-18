@@ -1,7 +1,6 @@
 import sys, cgi, requests, json, html
 import mysql.connector
 from config import server_cnf, db_credentials
-from http.server import HTTPServer, BaseHTTPRequestHandler
 from urllib.parse import urlparse, parse_qs
 
 cors_origin=server_cnf['cors-origin']
@@ -49,20 +48,20 @@ def verify_isbn(isbn):
         return isbn[-1] == str(check)
     else:
         return False
-
-class handler(BaseHTTPRequestHandler):
-    def do_GET(self):
-        print(self.path)
-        full_path = urlparse(self.path).path.split('/')
-        print(full_path)
-        print(urlparse(self.path))
+    
+def get_post_params(environ):
+    try:
+        length = int(environ.get('CONTENT_LENGTH', '0'))
+    except ValueError:
+        sys.stderr.write('params error ')
+        length = 0
         
-        if urlparse(self.path).path == '/favicon.ico':
-            with open('book-32.png', 'rb') as f:
-                self.send_response(200)
-                self.send_header('content-type', 'image/png') 
-                self.end_headers() 
-                self.wfile.write(f.read())
+    if length != 0:
+        sys.stderr.write('got params\n')
+        body = environ['wsgi.input'].read(length)
+        return parse_qs(body.decode())
+    else:
+        return {}
 
 def handle_options():
     return {'status': '200 OK', 'headers': default_headers, 'body': {}}
@@ -166,41 +165,29 @@ def app(environ, start_fn):
         elif len(path_list) == 4 and path_list[1] == 'books' and verify_isbn(path_list[2]):
             res = get_book(path_list[2])
         else:
-            res = {'status': '404 NOT FOUND', 'headers': default_headers, 'body': {'message': 'Polku ei kelpaa (muista päättävä kauttaviiva!)'}}
+            res = {'status': '404 NOT FOUND', 'headers': default_headers, 'body': {'message': 'Polku ei kelpaa (puuttuuko lopusta kauttaviiva?)'}}
 
         start_fn(res['status'], res['headers'])
         return [json.dumps(res['body'])]
     
     elif environ['REQUEST_METHOD'] == 'POST':
         sys.stderr.write('\nstart post\n')
-        res = {}
-        try:
-            length = int(environ.get('CONTENT_LENGTH', '0'))
-        except ValueError:
-            sys.stderr.write('no params ')
-            length = 0
-            
-        if length != 0:
-            sys.stderr.write('got params\n')
-            body= environ['wsgi.input'].read(length)
-            d = parse_qs(body.decode())
-            if not 'isbn' in d.keys():
-                sys.stderr.write('no isbn\n')
-                res = {'status': '404 NOT FOUND', 'headers': default_headers, 'body': {'message': 'ISBN-parametri puuttuu!'}}
-            elif len(path_list) != 3 or path_list[1] != 'books' or path_list[2] != '':
-                sys.stderr.write('bad path\n')
-                res = {'status': '404 NOT FOUND', 'headers': default_headers, 'body': {'message': 'Polku ei kelpaa (muista päättävä kauttaviiva!)'}}
-            else:
-                sys.stderr.write(f'gonna post {str(d)}\n')
-                isbn = d.get('isbn', '')[0]
-                isbn = html.escape(isbn)
-                if not verify_isbn(isbn):
-                    sys.stderr.write('not isbn\n')
-                    res = {'status': '404 NOT FOUND', 'headers': default_headers, 'body': {'message': 'ISBN ei kelpaa'}}
-                else:
-                    res = post_book(isbn)
-        else:
+        d = get_post_params(environ)
+        if not 'isbn' in d.keys():
+            sys.stderr.write('no isbn\n')
             res = {'status': '404 NOT FOUND', 'headers': default_headers, 'body': {'message': 'ISBN-parametri puuttuu!'}}
+        elif len(path_list) != 3 or path_list[1] != 'books' or path_list[2] != '':
+            sys.stderr.write('bad path\n')
+            res = {'status': '404 NOT FOUND', 'headers': default_headers, 'body': {'message': 'Polku ei kelpaa (puuttuuko lopusta kauttaviiva?)'}}
+        else:
+            sys.stderr.write(f'gonna post {str(d)}\n')
+            isbn = d.get('isbn', '')[0]
+            isbn = html.escape(isbn)
+            if verify_isbn(isbn):
+                res = post_book(isbn)
+            else:
+                sys.stderr.write('not isbn\n')
+                res = {'status': '404 NOT FOUND', 'headers': default_headers, 'body': {'message': 'ISBN ei kelpaa'}}
 
         start_fn(res['status'], res['headers'])
         return [json.dumps(res['body'])]
