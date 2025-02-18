@@ -21,6 +21,7 @@ def connect():
         return cnx
     
 def verify_isbn(isbn):
+    sys.stderr.write(f'isbn: {isbn}')
     if len(isbn) == 10:
         check = 0
         for (i, d) in enumerate(isbn[0:-1]):
@@ -55,64 +56,13 @@ class handler(BaseHTTPRequestHandler):
         full_path = urlparse(self.path).path.split('/')
         print(full_path)
         print(urlparse(self.path))
-
-        if urlparse(self.path).path == '/':
-            self.send_response(200)
-            self.send_header('content-type', 'text/html') 
-            self.end_headers() 
-            self.wfile.write(b'Home')
-
-        elif urlparse(self.path).path == '/favicon.ico':
+        
+        if urlparse(self.path).path == '/favicon.ico':
             with open('book-32.png', 'rb') as f:
                 self.send_response(200)
                 self.send_header('content-type', 'image/png') 
                 self.end_headers() 
                 self.wfile.write(f.read())
-
-        elif len(full_path) == 2 and full_path[1] == 'books':
-            params = parse_qs(urlparse(self.path).query)
-            page = int(params['page'][0] if 'page' in params.keys() else 1)
-            size = int(params['size'][0] if 'size' in params.keys() else 10)
-
-            cnx = connect()
-            with cnx.cursor() as cur:
-                cur.execute('SELECT COUNT(*) AS row_count FROM books;')
-                row_count = cur.fetchone()[0]
-            query = 'SELECT * FROM books WHERE id >= %s LIMIT %s;'
-            with cnx.cursor() as cur:
-                cur.execute(query, [(page - 1) * size, size])
-                rows = cur.fetchall()
-            cnx.close()
-            print(vars(cur))
-            book = [{ k:v for (k,v) in zip([col for col in cur.column_names], row) } for row in rows]
-            data = { 'page': page, 'size': size, 'total': row_count, 'data': book}
-
-            self.send_response(200)
-            self.send_header('content-type', 'application/json')
-            self.send_header('Access-Control-Allow-Origin', cors_origin)  
-            self.end_headers() 
-            self.wfile.write(json.dumps(data).encode('utf8'))
-        
-        elif len(full_path) == 3 and full_path[1] == 'books':
-            isbn = full_path[2]
-            query = 'SELECT * FROM books WHERE isbn = %s'
-            cnx = connect()
-            with cnx.cursor() as cur:
-                cur.execute(query, [isbn])
-                rows = cur.fetchall()
-                print(rows)
-            if len(rows) == 0:
-                self.send_response(404)
-                self.send_header('content-type', 'application/json')
-                self.end_headers()
-                self.wfile.write('{"error": "Kirjaa ei löydy"}'.encode('utf8'))
-            else:
-                self.send_response(200)
-                self.send_header('content-type', 'application/json')
-                self.end_headers()
-                book = { k:v for (k,v) in zip([col for col in cur.column_names], rows[0]) }
-                self.wfile.write(json.dumps(book).encode('utf8'))
-            cnx.close()
 
         else:
             self.send_response(404)
@@ -221,8 +171,8 @@ def runserver():
 if __name__ == '__main__':
     runserver()
 
-def get_books(query):
-    res = {'status': '500', 'headers': [('Content-Type', 'application/json')], 'body': {'message': 'Unknown error'}}
+def get_books(query, default_headers):
+    res = {'status': '500', 'headers': default_headers, 'body': {'message': 'Tuntematon virhe'}}
     params = parse_qs(query)
     page = int(params['page'][0] if 'page' in params.keys() else 1)
     size = int(params['size'][0] if 'size' in params.keys() else 10)
@@ -240,12 +190,12 @@ def get_books(query):
         print(vars(cur))
         book = [{ k:v for (k,v) in zip([col for col in cur.column_names], row) } for row in rows]
         data = { 'page': page, 'size': size, 'total': row_count, 'data': book}
-        res = {'status': '200 OK', 'headers': [('Content-Type', 'application/json')], 'body': data}
+        res = {'status': '200 OK', 'headers': default_headers, 'body': data}
     except Exception as e:
-        res = {'status': '500 OK', 'headers': [('Content-Type', 'application/json')], 'body': {'message': str(e)}}
+        res = {'status': '500 OK', 'headers': default_headers, 'body': {'message': str(e)}}
     return res
 
-def get_book(isbn):
+def get_book(isbn, default_headers):
     query = 'SELECT * FROM books WHERE isbn = %s'
     cnx = connect()
     with cnx.cursor() as cur:
@@ -253,20 +203,22 @@ def get_book(isbn):
         rows = cur.fetchall()
         print(rows)
     if len(rows) == 0:
-        res = {'status': '404 NOT FOUND', 'headers': [('Content-Type', 'application/json')], 'body': {'message': 'Kirjaa ei löydy'}}
+        res = {'status': '404 NOT FOUND', 'headers': default_headers, 'body': {'message': 'Kirjaa ei löydy'}}
     else:
         book = { k:v for (k,v) in zip([col for col in cur.column_names], rows[0]) }
-        res = {'status': '200 OK', 'headers': [('Content-Type', 'application/json')], 'body': book}
+        res = {'status': '200 OK', 'headers': default_headers, 'body': book}
     return res
     
 def app(environ, start_fn):
+    default_headers = [('Content-Type', 'application/json'),('Access-Control-Allow-Origin', cors_origin)]
     if environ['REQUEST_METHOD'] == 'GET':
-        res = {'status': '404 NOT FOUND', 'headers': [('Content-Type', 'application/json')], 'body': {'message': 'Invalid path'}}
+        res = {'status': '404 NOT FOUND', 'headers': default_headers, 'body': {'message': 'Polku ei kelpaa (muista päättävä kauttaviiva!)'}}
         path_list = environ['SCRIPT_URL'].split('/')
+        sys.stderr.write(f'path {str(path_list)}')
         if len(path_list) == 3 and path_list[1] == 'books' and path_list[2] == '':
-            res = get_books(environ['QUERY_STRING'])
+            res = get_books(environ['QUERY_STRING'], default_headers)
         elif len(path_list) == 4 and path_list[1] == 'books' and verify_isbn(path_list[2]):
-            res = get_book(path_list[2])
+            res = get_book(path_list[2], default_headers)
 
         start_fn(res['status'], res['headers'])
         return [json.dumps(res['body'])]
