@@ -221,14 +221,13 @@ def runserver():
 if __name__ == '__main__':
     runserver()
 
-def handle_get(path, query):
-    path_list = path.split('/')
-    res = {'status': '500', 'headers': [('Content-Type', 'application/json')], 'body': {}}
-    if len(path_list) == 3 and path_list[1] == 'books':
-        params = parse_qs(query)
-        page = int(params['page'][0] if 'page' in params.keys() else 1)
-        size = int(params['size'][0] if 'size' in params.keys() else 10)
+def get_books(query):
+    res = {'status': '500', 'headers': [('Content-Type', 'application/json')], 'body': {'message': 'Unknown error'}}
+    params = parse_qs(query)
+    page = int(params['page'][0] if 'page' in params.keys() else 1)
+    size = int(params['size'][0] if 'size' in params.keys() else 10)
 
+    try:
         cnx = connect()
         with cnx.cursor() as cur:
             cur.execute('SELECT COUNT(*) AS row_count FROM books;')
@@ -242,13 +241,36 @@ def handle_get(path, query):
         book = [{ k:v for (k,v) in zip([col for col in cur.column_names], row) } for row in rows]
         data = { 'page': page, 'size': size, 'total': row_count, 'data': book}
         res = {'status': '200 OK', 'headers': [('Content-Type', 'application/json')], 'body': data}
+    except Exception as e:
+        res = {'status': '500 OK', 'headers': [('Content-Type', 'application/json')], 'body': {'message': str(e)}}
+    return res
+
+def get_book(isbn):
+    query = 'SELECT * FROM books WHERE isbn = %s'
+    cnx = connect()
+    with cnx.cursor() as cur:
+        cur.execute(query, [isbn])
+        rows = cur.fetchall()
+        print(rows)
+    if len(rows) == 0:
+        res = {'status': '404 NOT FOUND', 'headers': [('Content-Type', 'application/json')], 'body': {'message': 'Kirjaa ei löydy'}}
+    else:
+        book = { k:v for (k,v) in zip([col for col in cur.column_names], rows[0]) }
+        res = {'status': '200 OK', 'headers': [('Content-Type', 'application/json')], 'body': book}
     return res
     
 def app(environ, start_fn):
     if environ['REQUEST_METHOD'] == 'GET':
-        res = handle_get(environ['SCRIPT_URL'], environ['QUERY_STRING'])
+        res = {'status': '404 NOT FOUND', 'headers': [('Content-Type', 'application/json')], 'body': {'message': 'Invalid path'}}
+        path_list = environ['SCRIPT_URL'].split('/')
+        if len(path_list) == 3 and path_list[1] == 'books' and path_list[2] == '':
+            res = get_books(environ['QUERY_STRING'])
+        elif len(path_list) == 4 and path_list[1] == 'books' and verify_isbn(path_list[2]):
+            res = get_book(path_list[2])
+
         start_fn(res['status'], res['headers'])
         return [json.dumps(res['body'])]
+    
     elif environ['REQUEST_METHOD'] == 'POST':
         diipa = ''
         daapa = ''
@@ -264,6 +286,7 @@ def app(environ, start_fn):
 
         start_fn('200 OK', [('Content-Type', 'application/json')])
         return [json.dumps({'body': {'diipa': diipa, 'daapa': daapa}})]
+    
     else:
         body= b''  # b'' for consistency on Python 3.0
         try:
