@@ -9,9 +9,9 @@ default_headers = [
     ('Access-Control-Allow-Origin', cors_origin)
 ]
 htmx_headers = [
-    ('Access-Control-Allow-Headers'), ('hx-current-url'),
-    ('Access-Control-Allow-Headers'), ('hx-request'),
-    ('Access-Control-Allow-Headers'), ('hx-target')
+    ('Access-Control-Allow-Headers', 'hx-current-url'),
+    ('Access-Control-Allow-Headers', 'hx-request'),
+    ('Access-Control-Allow-Headers', 'hx-target')
 ]
 
 def connect():
@@ -64,7 +64,7 @@ def get_post_params(environ):
         return {}
 
 def handle_options():
-    return {'status': '200 OK', 'headers': default_headers, 'body': {}}
+    return {'status': '200 OK', 'headers': default_headers + htmx_headers, 'body': {}}
 
 def get_books(query):
     params = parse_qs(query)
@@ -82,10 +82,10 @@ def get_books(query):
             rows = cur.fetchall()
         book = [{ k:v for (k,v) in zip([col for col in cur.column_names], row) } for row in rows]
         data = { 'page': page, 'size': size, 'total': row_count, 'data': book}
-        res = {'status': '200 OK', 'headers': default_headers, 'body': data}
+        res = {'status': '200 OK', 'headers': default_headers + htmx_headers, 'body': data}
     except Exception as e:
         sys.stderr.write(f'Database error: {str(e)}\n')
-        res = {'status': '500 INTERNAL SERVER ERROR', 'headers': default_headers, 'body': {'message': 'Tietokantavirhe'}}
+        res = {'status': '500 INTERNAL SERVER ERROR', 'headers': default_headers + htmx_headers, 'body': {'message': 'Tietokantavirhe'}}
     cnx.close()
     return res
 
@@ -160,9 +160,9 @@ def app(environ, start_fn):
         return [json.dumps(res['body'])]
 
     elif environ['REQUEST_METHOD'] == 'GET':
-        if len(path_list) == 3 and path_list[1] == 'books' and path_list[2] == '':
+        if len(path_list) == 3 and path_list[1] == 'books-api' and path_list[2] == '':
             res = get_books(environ['QUERY_STRING'])
-        elif len(path_list) == 4 and path_list[1] == 'books' and verify_isbn(path_list[2]):
+        elif len(path_list) == 4 and path_list[1] == 'books-api' and verify_isbn(path_list[2]):
             res = get_book(path_list[2])
         else:
             res = {'status': '404 NOT FOUND', 'headers': default_headers, 'body': {'message': 'Polku ei kelpaa (puuttuuko lopusta kauttaviiva?)'}}
@@ -176,7 +176,7 @@ def app(environ, start_fn):
         if not 'isbn' in d.keys():
             sys.stderr.write('no isbn\n')
             res = {'status': '404 NOT FOUND', 'headers': default_headers, 'body': {'message': 'ISBN-parametri puuttuu!'}}
-        elif len(path_list) != 3 or path_list[1] != 'books' or path_list[2] != '':
+        elif len(path_list) != 3 or path_list[1] != 'books-api' or path_list[2] != '':
             sys.stderr.write('bad path\n')
             res = {'status': '404 NOT FOUND', 'headers': default_headers, 'body': {'message': 'Polku ei kelpaa (puuttuuko lopusta kauttaviiva?)'}}
         else:
