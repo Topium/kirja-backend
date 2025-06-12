@@ -1,0 +1,15 @@
+FROM python:3.8.20-bullseye
+
+RUN groupadd -r uwsgi && useradd -r -g uwsgi uwsgi
+
+COPY ./dev-requirements.txt /app/requirements.txt
+COPY ./config.py /app/config.py
+COPY ./server.py /app/server.py
+WORKDIR /app
+
+RUN pip install --no-cache-dir --upgrade -r /app/requirements.txt
+
+EXPOSE 8080
+USER uwsgi
+
+CMD [ "uwsgi", "--http", ":8080", "--wsgi-file", "/app/server.py", "--callable", "app" ]

@@ -150,14 +150,15 @@ def post_book(isbn):
     return res
     
 def app(environ, start_fn):
-
-    path_list = environ['SCRIPT_URL'].split('/')
-    sys.stderr.write(f'path {str(path_list)}')
+    # for (k,v) in environ.items():
+    #     print(k, v)
+    path_list = environ['REQUEST_URI'].split('/')
+    sys.stderr.write(f'path {str(path_list)}\n')
 
     if environ['REQUEST_METHOD'] == 'OPTIONS':
         res = handle_options()
         start_fn(res['status'], res['headers'])
-        return [json.dumps(res['body'])]
+        return [json.dumps(res['body']).encode()]
 
     elif environ['REQUEST_METHOD'] == 'GET':
         if len(path_list) == 3 and path_list[1] == 'books-api' and path_list[2] == '':
@@ -168,7 +169,7 @@ def app(environ, start_fn):
             res = {'status': '404 NOT FOUND', 'headers': default_headers, 'body': {'message': 'Polku ei kelpaa (puuttuuko lopusta kauttaviiva?)'}}
 
         start_fn(res['status'], res['headers'])
-        return [json.dumps(res['body'])]
+        return [json.dumps(res['body']).encode()]
     
     elif environ['REQUEST_METHOD'] == 'POST':
         sys.stderr.write('\nstart post\n')
@@ -190,8 +191,12 @@ def app(environ, start_fn):
                 res = {'status': '404 NOT FOUND', 'headers': default_headers, 'body': {'message': 'ISBN ei kelpaa'}}
 
         start_fn(res['status'], res['headers'])
-        return [json.dumps(res['body'])]
+        return [json.dumps(res['body']).encode()]
     
+    elif environ['REQUEST_METHOD'] == 'DELETE':
+        start_fn('405 METHOD NOT ALLOWED', default_headers + htmx_headers)
+        return [json.dumps({'message': 'un erreur'}).encode()]
+        
     else:
         body= b''  # b'' for consistency on Python 3.0
         try:
@@ -201,4 +206,4 @@ def app(environ, start_fn):
         if length!=0:
             body= environ['wsgi.input'].read(length)
         start_fn('200 OK', [('Content-Type', 'text/plain')])
-        return [str(environ), str(body)]
+        return [str(environ), str(body).encode()]
