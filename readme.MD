@@ -9,3 +9,6 @@ Ominaisuudet:
 - Kirjan tietojen muokkaaminen
 - Kansikuvan lisääminen kirjalle
 - Kirjojen tietojen hakeminen nimen, kirjoittajan ja ISBN:n perusteella
+
+## Docker-komento
+docker run --name uwsgi-books-container -p 8080:8080 -p 3307:3306 <image id>                                  
