@@ -5,6 +5,8 @@ RUN groupadd -r uwsgi && useradd -r -g uwsgi uwsgi
 COPY ./dev-requirements.txt /app/requirements.txt
 COPY ./config.py /app/config.py
 COPY ./server.py /app/server.py
+COPY ./books.py /app/books.py
+COPY ./utils.py /app/utils.py
 WORKDIR /app
 
 RUN pip install --no-cache-dir --upgrade -r /app/requirements.txt
