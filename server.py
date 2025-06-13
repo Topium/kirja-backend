@@ -4,9 +4,9 @@ import utils
 import books
 
 routes = {
-    ('GET', '/books-api/books/'): books.get_books,
-    ('GET', '/books-api/book/'): books.get_book,
-    ('POST', '/books-api/book/'): books.post_book,
+    ('GET', '/books/'): books.get_books,
+    ('GET', '/book/'): books.get_book,
+    ('POST', '/book/'): books.post_book,
 }
 
 def handle_options():
