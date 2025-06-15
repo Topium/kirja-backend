@@ -106,10 +106,10 @@ def fetch_book_info(isbn):
     else:
         sys.stderr.write('isbn found\n')
         record = data['records'][0]
-        name = record['nonPresenterAuthors'][0]['name']
+        name = record['nonPresenterAuthors'][0]['name'].split(',')
         book['isbn'] = isbn
         book['title'] = record['title']
-        book['author_first'] = name[1:].strip()
+        book['author_first'] = name[1:][0].strip()
         book['author_last'] = name[0].strip()
         book['year'] = int(record['year'])
     return book
