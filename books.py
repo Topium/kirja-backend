@@ -34,10 +34,14 @@ def get_book(params):
             cur.execute(query, [isbn])
             rows = cur.fetchall()
         if len(rows) == 0:
-            res = {'status': '404 NOT FOUND', 'headers': utils.default_headers, 'body': {'message': 'Kirjaa ei löydy'}}
+            book = fetch_book_info(isbn)
+            if (len(book) > 0):
+                res = {'status': '200 OK', 'headers': utils.default_headers, 'body': {**book, 'source': 'Finna'}}
+            else:
+                res = {'status': '404 NOT FOUND', 'headers': utils.default_headers, 'body': {'message': 'Kirjaa ei löydy'}}
         else:
             book = { k:v for (k,v) in zip([col for col in cur.column_names], rows[0]) }
-            res = {'status': '200 OK', 'headers': utils.default_headers, 'body': book}
+            res = {'status': '200 OK', 'headers': utils.default_headers, 'body': {**book, 'source': 'topsu'}}
 
     except Exception as e:
         sys.stderr(f'Database error: {str(e)}\n')
@@ -67,25 +71,16 @@ def post_book(data):
                 res = {'status': '409 CONFLICT', 'headers': utils.default_headers, 'body': {'message': 'ISBN on jo kirjattu'}}
             else:
                 sys.stderr.write('request isbn\n')
-                url = 'https://api.finna.fi/api/v1/search?lookfor={}&type=AllFields&field%5B%5D=title&field%5B%5D=year&field%5B%5D=nonPresenterAuthors&page=1&limit=20'.format(isbn)
-                r = requests.get(url)
-                res = r.json()
-                sys.stderr.write(f'response: {str(res)}\n')
-
-                if res['resultCount'] < 1:
-                    sys.stderr.write('no isbn found\n')
+                book = fetch_book_info(isbn)
+                if len(book) < 1:
                     res = {'status': '404 NOT FOUND', 'headers': utils.default_headers, 'body': {'message': 'ISBN:ää ei tunnistettu'}}
                 else:
                     sys.stderr.write('isbn found\n')
-                    book = res['records'][0]
-                    name = book['nonPresenterAuthors'][0]['name']
-                    names = name.split(',')
-
                     sys.stderr.write('insert book\n')
                     cnx = utils.connect()
                     with cnx.cursor() as cur:
                         query = 'INSERT INTO books (id, isbn, title, author_last, author_first, year) VALUES (NULL, %s, %s, %s, %s, %s)'
-                        cur.execute(query, [isbn, book['title'], names[0].strip(), names[1].strip(), int(book['year'])])
+                        cur.execute(query, [book['isbn'], book['title'], book['author_last'], book['author_first'], book['year']])
                     cnx.commit()
                     res = {'status': '201 CREATED', 'headers': utils.default_headers, 'body': {}}
             cnx.close()
@@ -96,3 +91,25 @@ def post_book(data):
 
     sys.stderr.write(f'post res: {str(res)}\n')
     return res
+
+def fetch_book_info(isbn):
+    isbn = str(isbn)
+    sys.stderr.write('request isbn\n')
+    url = 'https://api.finna.fi/api/v1/search?lookfor={}&type=AllFields&field%5B%5D=title&field%5B%5D=year&field%5B%5D=nonPresenterAuthors&page=1&limit=20'.format(isbn)
+    r = requests.get(url)
+    data = r.json()
+    sys.stderr.write(f'Response from Finna: {str(data)}\n')
+    book = {}
+
+    if data['resultCount'] < 1 or data['status'] != 'OK':
+        sys.stderr.write('no isbn found\n')
+    else:
+        sys.stderr.write('isbn found\n')
+        record = data['records'][0]
+        name = record['nonPresenterAuthors'][0]['name']
+        book['isbn'] = isbn
+        book['title'] = record['title']
+        book['author_first'] = name[1:].strip()
+        book['author_last'] = name[0].strip()
+        book['year'] = int(record['year'])
+    return book
