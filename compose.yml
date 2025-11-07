@@ -1,0 +1,7 @@
+services:
+  kirja-backend:
+    container_name: 'uwsgi-books-cont'
+    image: 'uwsgi-books'
+    ports:
+      - 8080:8080
+      - 3307:3306

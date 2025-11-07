@@ -16,7 +16,7 @@ def app(environ, start_fn):
     # for (k,v) in environ.items():
     #     sys.stdout.write(f'{k}: {v}\n')
     path_list = environ['REQUEST_URI'].split('/')
-    sys.stderr.write(f'path {str(path_list)}\n')
+    sys.stdout.write(f'path {str(path_list)}\n')
 
     if environ['REQUEST_METHOD'] == 'OPTIONS':
         res = handle_options()
@@ -24,6 +24,7 @@ def app(environ, start_fn):
         return [json.dumps(res['body']).encode()]
 
     elif environ['REQUEST_METHOD'] == 'GET':
+        sys.stdout.write('\nstart get\n')
         handler = routes.get((environ['REQUEST_METHOD'], environ['PATH_INFO']))
         if handler:
             params = parse_qs(environ['QUERY_STRING'])
@@ -35,8 +36,7 @@ def app(environ, start_fn):
         return [json.dumps(res['body']).encode()]
     
     elif environ['REQUEST_METHOD'] == 'POST':
-        sys.stderr.write('\nstart post\n')
-        
+        sys.stdout.write('\nstart post\n')
         handler = routes.get((environ['REQUEST_METHOD'], environ['PATH_INFO']))
         if handler:
             data = utils.get_post_params(environ)
@@ -48,8 +48,15 @@ def app(environ, start_fn):
         return [json.dumps(res['body']).encode()]
     
     elif environ['REQUEST_METHOD'] == 'DELETE':
-        start_fn('405 METHOD NOT ALLOWED', utils.default_headers + utils.htmx_headers)
-        return [json.dumps({'message': 'un erreur'}).encode()]
+        handler = routes.get((environ['REQUEST_METHOD'], environ['PATH_INFO']))
+        if handler:
+            data = utils.get_post_params(environ)
+            res = handler(data)
+        else:
+            res = {'status': '404 NOT FOUND', 'headers': utils.default_headers, 'body': {'message': 'Polku ei kelpaa (puuttuuko lopusta kauttaviiva?)'}}
+
+        start_fn(res['status'], res['headers'])
+        return [json.dumps(res['body']).encode()]
         
     else:
         body= b''  # b'' for consistency on Python 3.0

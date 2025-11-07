@@ -14,6 +14,18 @@ Projektin tarkoitus on luoda REST-backend kirjatietokannalle, joka säilöö lis
 - Kirjojen tietojen hakeminen kannasta nimen ja kirjoittajan perusteella
 
 ## Docker-komennot kehitystä varten
-`docker build -t uwsgi-books .`
+Kun backendiin on tehty muutoksia, tehdään uusi Docker-käännös:
+```
+docker build -t uwsgi-books .
+```
 
-`docker run --name uwsgi-books-container -p 8080:8080 -p 3307:3306 uwsgi-books`                                  
+Kontti käynnistetään seuraavalla komennolla:
+```
+docker compose up
+```
+tai
+```
+docker run --name uwsgi-books-container -p 8080:8080 -p 3307:3306 uwsgi-books
+```
+
+**HUOM: frontin pitää pyöriä `config.py` -tiedostossa määritellyssä `cors-origin` -osoitteessa!**

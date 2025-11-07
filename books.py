@@ -7,6 +7,8 @@ def get_books(params):
 
     try:
         cnx = utils.connect()
+        if cnx == None:
+            raise Exception
         with cnx.cursor() as cur:
             cur.execute('SELECT COUNT(*) AS row_count FROM books;')
             row_count = cur.fetchone()[0]
@@ -22,7 +24,8 @@ def get_books(params):
         sys.stderr.write(f'Database error: {str(e)}\n')
         res = {'status': '500 INTERNAL SERVER ERROR', 'headers': utils.default_headers + utils.htmx_headers, 'body': {'message': 'Tietokantavirhe'}}
         
-    cnx.close()
+    if cnx != None:
+        cnx.close()
     return res
 
 def get_book(params):
@@ -30,6 +33,8 @@ def get_book(params):
     query = 'SELECT * FROM books WHERE isbn = %s'
     try:
         cnx = utils.connect()
+        if cnx == None:
+            raise Exception
         with cnx.cursor() as cur:
             cur.execute(query, [isbn])
             rows = cur.fetchall()
@@ -44,10 +49,11 @@ def get_book(params):
             res = {'status': '200 OK', 'headers': utils.default_headers, 'body': {**book, 'source': 'topsu'}}
 
     except Exception as e:
-        sys.stderr(f'Database error: {str(e)}\n')
+        sys.stderr.write(f'Database error: {str(e)}\n')
         res = {'status': '500 INTERNAL SERVER ERROR', 'headers': utils.default_headers, 'body': {'message': 'Tietokantavirhe'}}
 
-    cnx.close()
+    if cnx != None:
+        cnx.close()
     return res
 
 def post_book(data):
@@ -62,6 +68,8 @@ def post_book(data):
         try:
             isbn = html.escape(data.get('isbn', '')[0])
             cnx = utils.connect()
+            if cnx == None:
+                raise Exception
             with cnx.cursor() as cur:
                 query = 'SELECT * FROM books WHERE isbn = %s;'
                 cur.execute(query, [isbn])
@@ -78,12 +86,15 @@ def post_book(data):
                     sys.stderr.write('isbn found\n')
                     sys.stderr.write('insert book\n')
                     cnx = utils.connect()
+                    if cnx == None:
+                        raise Exception
                     with cnx.cursor() as cur:
                         query = 'INSERT INTO books (id, isbn, title, author_last, author_first, year) VALUES (NULL, %s, %s, %s, %s, %s)'
                         cur.execute(query, [book['isbn'], book['title'], book['author_last'], book['author_first'], book['year']])
                     cnx.commit()
                     res = {'status': '201 CREATED', 'headers': utils.default_headers, 'body': {}}
-            cnx.close()
+            if cnx != None:
+                cnx.close()
 
         except Exception as e:
             sys.stderr.write(f'Database error: {str(e)}\n')
