@@ -7,6 +7,7 @@ routes = {
     ('GET', '/books/'): books.get_books,
     ('GET', '/book/'): books.get_book,
     ('POST', '/book/'): books.post_book,
+    ('DELETE', '/book/'): books.delete_book
 }
 
 def handle_options():
@@ -50,8 +51,8 @@ def app(environ, start_fn):
     elif environ['REQUEST_METHOD'] == 'DELETE':
         handler = routes.get((environ['REQUEST_METHOD'], environ['PATH_INFO']))
         if handler:
-            data = utils.get_post_params(environ)
-            res = handler(data)
+            params = parse_qs(environ['QUERY_STRING'])
+            res = handler(params)
         else:
             res = {'status': '404 NOT FOUND', 'headers': utils.default_headers, 'body': {'message': 'Polku ei kelpaa (puuttuuko lopusta kauttaviiva?)'}}
 

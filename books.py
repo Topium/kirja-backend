@@ -103,6 +103,38 @@ def post_book(data):
     sys.stderr.write(f'post res: {str(res)}\n')
     return res
 
+def delete_book(params):
+    sys.stderr.write('start db delete\n')
+    try:
+        isbn = int(params['isbn'][0] if 'isbn' in params.keys() else 0)
+        cnx = utils.connect()
+        if cnx == None:
+            raise Exception
+        with cnx.cursor() as cur:
+            query = 'SELECT * FROM books WHERE isbn = %s'
+            cur.execute(query, [isbn])
+            rows = cur.fetchall()
+            if len(rows) != 1:
+                res = {'status': '404 NOT FOUND', 'headers': utils.default_headers, 'body': {'message': 'ISBN:ää ei löydy'}}
+            else:
+                sys.stderr.write('isbn found\n')
+                sys.stderr.write('delete book\n')
+                if cnx == None:
+                    raise Exception
+                with cnx.cursor() as cur:
+                    query = 'DELETE FROM books WHERE isbn = %s'
+                    cur.execute(query, [isbn])
+                    cnx.commit()
+                    res = {'status': '200 OK', 'headers': utils.default_headers, 'body': {}}
+            if cnx != None:
+                cnx.close()
+    except Exception as e:
+        sys.stderr.write(f'Database error: {str(e)}\n')
+        res = {'status': '500 INTERNAL SERVER ERROR', 'headers': utils.default_headers, 'body': {'message': 'Tietokantavirhe'}}
+
+    sys.stderr.write(f'delete res: {str(res)}\n')
+    return res
+
 def fetch_book_info(isbn):
     isbn = str(isbn)
     sys.stderr.write('request isbn\n')
